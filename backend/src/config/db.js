@@ -1,9 +1,18 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
+function shouldUseSsl(connectionString) {
+  if (process.env.DB_SSL === 'true') return true;
+  if (process.env.DB_SSL === 'false') return false;
+  if (connectionString && /sslmode=require/i.test(connectionString)) return true;
+  // External Render hostnames typically require TLS
+  if (connectionString && /\.render\.com/i.test(connectionString)) return true;
+  return false;
+}
+
 function buildPoolConfig() {
   if (process.env.DATABASE_URL) {
-    const useSsl = process.env.DB_SSL !== 'false';
+    const useSsl = shouldUseSsl(process.env.DATABASE_URL);
     return {
       connectionString: process.env.DATABASE_URL,
       ssl: useSsl ? { rejectUnauthorized: false } : undefined,
@@ -11,14 +20,13 @@ function buildPoolConfig() {
     };
   }
 
-  const useSsl = process.env.DB_SSL === 'true';
   return {
     host: process.env.DB_HOST || 'localhost',
     port: Number(process.env.DB_PORT) || 5432,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
-    ssl: useSsl ? { rejectUnauthorized: false } : undefined,
+    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
     max: 10,
   };
 }

@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const { query } = require('./config/db');
 const errorHandler = require('./middleware/errorHandler');
+const { initDatabase } = require('./utils/initDb');
 
 const dashboardRoutes = require('./routes/dashboard');
 const categoryRoutes = require('./routes/categories');
@@ -22,6 +23,29 @@ app.get('/api/health', async (req, res) => {
     res.json({ status: 'ok', database: 'connected' });
   } catch (err) {
     res.status(503).json({ status: 'error', database: 'disconnected', error: err.message });
+  }
+});
+
+// One-time DB setup for hosts without Shell (e.g. Render free).
+// Set SETUP_SECRET on the service, then open:
+//   GET /api/setup/init-db?key=YOUR_SECRET
+app.get('/api/setup/init-db', async (req, res) => {
+  const expected = process.env.SETUP_SECRET;
+  if (!expected) {
+    return res.status(503).json({
+      error: 'SETUP_SECRET is not configured on this service',
+    });
+  }
+  if (req.query.key !== expected) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const result = await initDatabase();
+    return res.json({ status: 'ok', ...result });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(err);
+    return res.status(500).json({ error: err.message });
   }
 });
 

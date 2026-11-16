@@ -31,3 +31,6 @@ services:
       # Internal Render DB usually does not need SSL
       - key: DB_SSL
         value: "false"
+      # Used for GET /api/setup/init-db?key=... when Shell is unavailable
+      - key: SETUP_SECRET
+        generateValue: true

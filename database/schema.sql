@@ -4,7 +4,12 @@
 -- Create database separately if needed, e.g.:
 --   CREATE DATABASE hafisco_inventory;
 
-CREATE TYPE movement_type AS ENUM ('IN', 'OUT', 'ADJUSTMENT');
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'movement_type') THEN
+    CREATE TYPE movement_type AS ENUM ('IN', 'OUT', 'ADJUSTMENT');
+  END IF;
+END$$;
 
 CREATE TABLE IF NOT EXISTS categories (
   id SERIAL PRIMARY KEY,

@@ -6,3 +6,5 @@ build/
 .DS_Store
 coverage/
 .vite/
+hafisco-*.zip
+hafisco-*.tar.gz

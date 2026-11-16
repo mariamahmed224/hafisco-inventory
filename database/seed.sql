@@ -1,5 +1,4 @@
--- Sample seed data for HAFISCO inventory demo
-USE hafisco_inventory;
+-- Sample seed data for HAFISCO inventory demo (PostgreSQL)
 
 INSERT INTO categories (category_name, description) VALUES
   ('Electronics', 'Electronic devices and accessories'),
@@ -20,7 +19,6 @@ INSERT INTO products (
   ('Bluetooth Keyboard', 'ELE-KB-01', 1, 'Compact Bluetooth keyboard', 'White', NULL, 22, 5),
   ('Storage Cabinet', 'FUR-CAB-01', 3, 'Two-door metal storage cabinet', 'Beige', NULL, 4, 3);
 
--- Initial stock-in movements matching seeded quantities
 INSERT INTO stock_movements (product_id, movement_type, quantity, remarks) VALUES
   (1, 'IN', 45, 'Initial stock'),
   (2, 'IN', 8, 'Initial stock'),

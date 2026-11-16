@@ -1,4 +1,4 @@
-const pool = require('../config/db');
+const { query, withTransaction } = require('../config/db');
 const { withStockStatus } = require('../utils/stockStatus');
 
 async function listMovements(req, res, next) {
@@ -18,8 +18,9 @@ async function listMovements(req, res, next) {
 
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const rowLimit = Math.min(Number(limit) || 200, 1000);
+    params.push(rowLimit);
 
-    const [rows] = await pool.query(
+    const { rows } = await query(
       `SELECT
          sm.id, sm.product_id, sm.movement_type, sm.quantity, sm.remarks, sm.created_at,
          p.product_name, p.product_code
@@ -27,7 +28,7 @@ async function listMovements(req, res, next) {
        JOIN products p ON p.id = sm.product_id
        ${where}
        ORDER BY sm.created_at DESC, sm.id DESC
-       LIMIT ${rowLimit}`,
+       LIMIT ?`,
       params
     );
     res.json(rows);
@@ -37,85 +38,77 @@ async function listMovements(req, res, next) {
 }
 
 async function createMovement(req, res, next) {
-  const conn = await pool.getConnection();
   try {
     const { product_id, movement_type, quantity, remarks } = req.body;
     const type = String(movement_type).toUpperCase();
     const qty = Number(quantity);
 
-    await conn.beginTransaction();
-
-    const [products] = await conn.query(
-      'SELECT id, quantity FROM products WHERE id = ? FOR UPDATE',
-      [product_id]
-    );
-    if (!products.length) {
-      await conn.rollback();
-      return res.status(404).json({ error: 'Product not found' });
-    }
-
-    const current = Number(products[0].quantity);
-    let nextQty = current;
-
-    if (type === 'IN') {
-      nextQty = current + qty;
-    } else if (type === 'OUT') {
-      if (qty > current) {
-        await conn.rollback();
-        return res.status(400).json({
-          error: 'Insufficient stock. Stock Out would make quantity negative.',
-          current_quantity: current,
-          requested: qty,
-        });
+    const movement = await withTransaction(async (tx) => {
+      const products = await tx(
+        'SELECT id, quantity FROM products WHERE id = ? FOR UPDATE',
+        [product_id]
+      );
+      if (!products.rows.length) {
+        const err = new Error('Product not found');
+        err.status = 404;
+        throw err;
       }
-      nextQty = current - qty;
-    } else if (type === 'ADJUSTMENT') {
-      // Adjustment quantity is the absolute new stock level (may be 0)
-      nextQty = qty;
-    } else {
-      await conn.rollback();
-      return res.status(400).json({ error: 'Invalid movement type' });
-    }
 
-    // Movement rows require quantity > 0; for ADJUSTMENT record the change magnitude.
-    let movementQty = qty;
-    let movementRemarks = remarks || null;
+      const current = Number(products.rows[0].quantity);
+      let nextQty = current;
 
-    if (type === 'ADJUSTMENT') {
-      const delta = Math.abs(nextQty - current);
-      movementQty = delta > 0 ? delta : 1;
-      movementRemarks = [
-        movementRemarks,
-        `Adjusted from ${current} to ${nextQty}`,
-      ]
-        .filter(Boolean)
-        .join(' — ');
-    }
+      if (type === 'IN') {
+        nextQty = current + qty;
+      } else if (type === 'OUT') {
+        if (qty > current) {
+          const err = new Error(
+            'Insufficient stock. Stock Out would make quantity negative.'
+          );
+          err.status = 400;
+          err.payload = { current_quantity: current, requested: qty };
+          throw err;
+        }
+        nextQty = current - qty;
+      } else if (type === 'ADJUSTMENT') {
+        nextQty = qty;
+      } else {
+        const err = new Error('Invalid movement type');
+        err.status = 400;
+        throw err;
+      }
 
-    await conn.query(
-      'UPDATE products SET quantity = ? WHERE id = ?',
-      [nextQty, product_id]
-    );
+      let movementQty = qty;
+      let movementRemarks = remarks || null;
 
-    const [result] = await conn.query(
-      `INSERT INTO stock_movements (product_id, movement_type, quantity, remarks)
-       VALUES (?, ?, ?, ?)`,
-      [product_id, type, movementQty, movementRemarks]
-    );
+      if (type === 'ADJUSTMENT') {
+        const delta = Math.abs(nextQty - current);
+        movementQty = delta > 0 ? delta : 1;
+        movementRemarks = [movementRemarks, `Adjusted from ${current} to ${nextQty}`]
+          .filter(Boolean)
+          .join(' — ');
+      }
 
-    await conn.commit();
+      await tx('UPDATE products SET quantity = ? WHERE id = ?', [nextQty, product_id]);
 
-    const [movements] = await pool.query(
-      `SELECT
-         sm.id, sm.product_id, sm.movement_type, sm.quantity, sm.remarks, sm.created_at,
-         p.product_name, p.product_code, p.quantity AS product_quantity, p.minimum_stock_level
-       FROM stock_movements sm
-       JOIN products p ON p.id = sm.product_id
-       WHERE sm.id = ?`,
-      [result.insertId]
-    );
+      const inserted = await tx(
+        `INSERT INTO stock_movements (product_id, movement_type, quantity, remarks)
+         VALUES (?, ?, ?, ?)
+         RETURNING id`,
+        [product_id, type, movementQty, movementRemarks]
+      );
 
-    const movement = movements[0];
+      const full = await tx(
+        `SELECT
+           sm.id, sm.product_id, sm.movement_type, sm.quantity, sm.remarks, sm.created_at,
+           p.product_name, p.product_code, p.quantity AS product_quantity, p.minimum_stock_level
+         FROM stock_movements sm
+         JOIN products p ON p.id = sm.product_id
+         WHERE sm.id = ?`,
+        [inserted.rows[0].id]
+      );
+      return full.rows[0];
+    });
+
     return res.status(201).json({
       ...movement,
       product: withStockStatus({
@@ -127,10 +120,13 @@ async function createMovement(req, res, next) {
       }),
     });
   } catch (err) {
-    await conn.rollback();
+    if (err.status === 400 && err.payload) {
+      return res.status(400).json({ error: err.message, ...err.payload });
+    }
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message });
+    }
     return next(err);
-  } finally {
-    conn.release();
   }
 }
 

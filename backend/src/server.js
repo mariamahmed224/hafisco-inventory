@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const pool = require('./config/db');
+const { query } = require('./config/db');
 const errorHandler = require('./middleware/errorHandler');
 
 const dashboardRoutes = require('./routes/dashboard');
@@ -18,7 +18,7 @@ app.use(express.json({ limit: '1mb' }));
 
 app.get('/api/health', async (req, res) => {
   try {
-    await pool.query('SELECT 1');
+    await query('SELECT 1');
     res.json({ status: 'ok', database: 'connected' });
   } catch (err) {
     res.status(503).json({ status: 'error', database: 'disconnected', error: err.message });

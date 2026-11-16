@@ -1,13 +1,13 @@
 # HAFISCO Simple Inventory Management System
 
-Stock-only inventory app: React frontend, Node/Express REST API, MySQL.
+Stock-only inventory app: React frontend, Node/Express REST API, **PostgreSQL**.
 
 **Scope:** products, categories, stock movements, and stock reports. No prices, profit, or financial features.
 
 ## Requirements
 
 - Node.js 18+
-- MySQL 8+
+- PostgreSQL 14+ (16 recommended)
 - npm
 
 ## Project structure
@@ -15,7 +15,7 @@ Stock-only inventory app: React frontend, Node/Express REST API, MySQL.
 ```
 /agent
   database/
-    schema.sql      # tables + constraints
+    schema.sql      # tables + constraints (PostgreSQL)
     seed.sql        # sample categories & products
   backend/          # Express API (port 4000)
   frontend/         # React (Vite) UI (port 5173)
@@ -24,25 +24,22 @@ Stock-only inventory app: React frontend, Node/Express REST API, MySQL.
 
 ## Database setup
 
-1. Start MySQL.
-2. Create the schema and seed data:
-
-```bash
-mysql -u root -p < database/schema.sql
-mysql -u root -p < database/seed.sql
-```
-
-Or create a dedicated user (example):
+1. Start PostgreSQL.
+2. Create a database and user (example):
 
 ```sql
-CREATE DATABASE IF NOT EXISTS hafisco_inventory
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS 'hafisco'@'localhost' IDENTIFIED BY 'hafisco_pass';
-GRANT ALL PRIVILEGES ON hafisco_inventory.* TO 'hafisco'@'localhost';
-FLUSH PRIVILEGES;
+CREATE USER hafisco WITH PASSWORD 'hafisco_pass';
+CREATE DATABASE hafisco_inventory OWNER hafisco;
 ```
 
-Then load `database/schema.sql` and `database/seed.sql`.
+3. Load schema and seed:
+
+```bash
+psql -U hafisco -d hafisco_inventory -f database/schema.sql
+psql -U hafisco -d hafisco_inventory -f database/seed.sql
+```
+
+On Render: create a **PostgreSQL** instance, then run the same two files against its `DATABASE_URL`.
 
 ### Tables
 
@@ -55,7 +52,7 @@ Then load `database/schema.sql` and `database/seed.sql`.
 ```bash
 cd backend
 cp .env.example .env
-# edit DB_* credentials in .env
+# edit DB_* or set DATABASE_URL (and DB_SSL=true on Render)
 npm install
 npm start
 ```
@@ -94,16 +91,24 @@ Open `http://localhost:5173`.
 
 `VITE_API_BASE_URL` defaults to `http://localhost:4000/api`.
 
+## Deploy (Render + Vercel)
+
+See Project doc `/cursor/stores/self/docs/render-deploy.md` (or summary below):
+
+1. Render PostgreSQL → run `schema.sql` + `seed.sql`
+2. Render Web Service, root `backend`, env `DATABASE_URL` + `DB_SSL=true`
+3. Vercel frontend, env `VITE_API_BASE_URL=https://YOUR-API.onrender.com/api`
+
 ## Features
 
 - **Dashboard** — total products, total stock qty, low-stock count, out-of-stock count, recently added
 - **Products** — CRUD, search, category filter, detail view, In Stock / Low Stock / Out of Stock badges
-- **Categories** — CRUD (seed includes Electronics, Clothing, Furniture, Office Supplies, Accessories)
+- **Categories** — CRUD
 - **Stock** — Stock In, Stock Out, Adjustment + movement history
-- **Reports** — all / low / out-of-stock / movements with CSV export (opens in Excel)
+- **Reports** — all / low / out-of-stock / movements with CSV export
 
 ## Notes
 
 - Colour is free-text (not a preset list).
 - SKU / `product_code` is optional but unique when set.
-- Prepared statements are used throughout to avoid SQL injection.
+- Prepared / parameterised queries are used throughout (no string-concatenated SQL).

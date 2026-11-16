@@ -1,9 +1,9 @@
-const pool = require('../config/db');
+const { query } = require('../config/db');
 
 async function listCategories(req, res, next) {
   try {
-    const [rows] = await pool.query(`
-      SELECT c.*, COUNT(p.id) AS product_count
+    const { rows } = await query(`
+      SELECT c.*, COUNT(p.id)::int AS product_count
       FROM categories c
       LEFT JOIN products p ON p.category_id = c.id
       GROUP BY c.id
@@ -17,10 +17,7 @@ async function listCategories(req, res, next) {
 
 async function getCategory(req, res, next) {
   try {
-    const [rows] = await pool.query(
-      'SELECT * FROM categories WHERE id = ?',
-      [req.params.id]
-    );
+    const { rows } = await query('SELECT * FROM categories WHERE id = ?', [req.params.id]);
     if (!rows.length) {
       return res.status(404).json({ error: 'Category not found' });
     }
@@ -33,11 +30,12 @@ async function getCategory(req, res, next) {
 async function createCategory(req, res, next) {
   try {
     const { category_name, description } = req.body;
-    const [result] = await pool.query(
-      'INSERT INTO categories (category_name, description) VALUES (?, ?)',
+    const { rows } = await query(
+      `INSERT INTO categories (category_name, description)
+       VALUES (?, ?)
+       RETURNING *`,
       [category_name.trim(), description || null]
     );
-    const [rows] = await pool.query('SELECT * FROM categories WHERE id = ?', [result.insertId]);
     res.status(201).json(rows[0]);
   } catch (err) {
     next(err);
@@ -47,15 +45,16 @@ async function createCategory(req, res, next) {
 async function updateCategory(req, res, next) {
   try {
     const { category_name, description } = req.body;
-    const [existing] = await pool.query('SELECT id FROM categories WHERE id = ?', [req.params.id]);
-    if (!existing.length) {
+    const existing = await query('SELECT id FROM categories WHERE id = ?', [req.params.id]);
+    if (!existing.rows.length) {
       return res.status(404).json({ error: 'Category not found' });
     }
-    await pool.query(
-      'UPDATE categories SET category_name = ?, description = ? WHERE id = ?',
+    const { rows } = await query(
+      `UPDATE categories SET category_name = ?, description = ?
+       WHERE id = ?
+       RETURNING *`,
       [category_name.trim(), description || null, req.params.id]
     );
-    const [rows] = await pool.query('SELECT * FROM categories WHERE id = ?', [req.params.id]);
     return res.json(rows[0]);
   } catch (err) {
     return next(err);
@@ -64,11 +63,11 @@ async function updateCategory(req, res, next) {
 
 async function deleteCategory(req, res, next) {
   try {
-    const [existing] = await pool.query('SELECT id FROM categories WHERE id = ?', [req.params.id]);
-    if (!existing.length) {
+    const existing = await query('SELECT id FROM categories WHERE id = ?', [req.params.id]);
+    if (!existing.rows.length) {
       return res.status(404).json({ error: 'Category not found' });
     }
-    await pool.query('DELETE FROM categories WHERE id = ?', [req.params.id]);
+    await query('DELETE FROM categories WHERE id = ?', [req.params.id]);
     return res.json({ message: 'Category deleted' });
   } catch (err) {
     return next(err);

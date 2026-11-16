@@ -1,4 +1,4 @@
-const pool = require('../config/db');
+const { query, withTransaction } = require('../config/db');
 const { withStockStatus } = require('../utils/stockStatus');
 
 const PRODUCT_SELECT = `
@@ -17,7 +17,7 @@ async function listProducts(req, res, next) {
     const params = [];
 
     if (search && String(search).trim()) {
-      clauses.push('(p.product_name LIKE ? OR p.product_code LIKE ?)');
+      clauses.push('(p.product_name ILIKE ? OR p.product_code ILIKE ?)');
       const term = `%${String(search).trim()}%`;
       params.push(term, term);
     }
@@ -34,7 +34,7 @@ async function listProducts(req, res, next) {
     }
 
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-    const [rows] = await pool.query(
+    const { rows } = await query(
       `${PRODUCT_SELECT} ${where} ORDER BY p.product_name ASC`,
       params
     );
@@ -46,10 +46,7 @@ async function listProducts(req, res, next) {
 
 async function getProduct(req, res, next) {
   try {
-    const [rows] = await pool.query(
-      `${PRODUCT_SELECT} WHERE p.id = ?`,
-      [req.params.id]
-    );
+    const { rows } = await query(`${PRODUCT_SELECT} WHERE p.id = ?`, [req.params.id]);
     if (!rows.length) {
       return res.status(404).json({ error: 'Product not found' });
     }
@@ -78,17 +75,17 @@ async function createProduct(req, res, next) {
     } = req.body;
 
     const qty = Number(quantity);
-    const minLevel = minimum_stock_level === undefined || minimum_stock_level === ''
-      ? 0
-      : Number(minimum_stock_level);
+    const minLevel =
+      minimum_stock_level === undefined || minimum_stock_level === ''
+        ? 0
+        : Number(minimum_stock_level);
 
-    const conn = await pool.getConnection();
-    try {
-      await conn.beginTransaction();
-      const [result] = await conn.query(
+    const product = await withTransaction(async (tx) => {
+      const inserted = await tx(
         `INSERT INTO products
           (product_name, product_code, category_id, description, colour, size, quantity, minimum_stock_level)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         RETURNING id`,
         [
           product_name.trim(),
           normalizeCode(product_code),
@@ -100,24 +97,21 @@ async function createProduct(req, res, next) {
           minLevel,
         ]
       );
+      const newId = inserted.rows[0].id;
 
       if (qty > 0) {
-        await conn.query(
+        await tx(
           `INSERT INTO stock_movements (product_id, movement_type, quantity, remarks)
            VALUES (?, 'IN', ?, ?)`,
-          [result.insertId, qty, 'Initial stock on product create']
+          [newId, qty, 'Initial stock on product create']
         );
       }
 
-      await conn.commit();
-      const [rows] = await pool.query(`${PRODUCT_SELECT} WHERE p.id = ?`, [result.insertId]);
-      res.status(201).json(withStockStatus(rows[0]));
-    } catch (err) {
-      await conn.rollback();
-      throw err;
-    } finally {
-      conn.release();
-    }
+      const full = await tx(`${PRODUCT_SELECT} WHERE p.id = ?`, [newId]);
+      return full.rows[0];
+    });
+
+    res.status(201).json(withStockStatus(product));
   } catch (err) {
     next(err);
   }
@@ -125,8 +119,8 @@ async function createProduct(req, res, next) {
 
 async function updateProduct(req, res, next) {
   try {
-    const [existing] = await pool.query('SELECT id FROM products WHERE id = ?', [req.params.id]);
-    if (!existing.length) {
+    const existing = await query('SELECT id FROM products WHERE id = ?', [req.params.id]);
+    if (!existing.rows.length) {
       return res.status(404).json({ error: 'Product not found' });
     }
 
@@ -140,8 +134,7 @@ async function updateProduct(req, res, next) {
       minimum_stock_level,
     } = req.body;
 
-    // Quantity is managed via stock movements only
-    await pool.query(
+    await query(
       `UPDATE products SET
         product_name = ?,
         product_code = ?,
@@ -165,7 +158,7 @@ async function updateProduct(req, res, next) {
       ]
     );
 
-    const [rows] = await pool.query(`${PRODUCT_SELECT} WHERE p.id = ?`, [req.params.id]);
+    const { rows } = await query(`${PRODUCT_SELECT} WHERE p.id = ?`, [req.params.id]);
     return res.json(withStockStatus(rows[0]));
   } catch (err) {
     return next(err);
@@ -174,11 +167,11 @@ async function updateProduct(req, res, next) {
 
 async function deleteProduct(req, res, next) {
   try {
-    const [existing] = await pool.query('SELECT id FROM products WHERE id = ?', [req.params.id]);
-    if (!existing.length) {
+    const existing = await query('SELECT id FROM products WHERE id = ?', [req.params.id]);
+    if (!existing.rows.length) {
       return res.status(404).json({ error: 'Product not found' });
     }
-    await pool.query('DELETE FROM products WHERE id = ?', [req.params.id]);
+    await query('DELETE FROM products WHERE id = ?', [req.params.id]);
     return res.json({ message: 'Product deleted' });
   } catch (err) {
     return next(err);

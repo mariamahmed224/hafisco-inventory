@@ -1,4 +1,4 @@
-const pool = require('../config/db');
+const { query } = require('../config/db');
 const { withStockStatus } = require('../utils/stockStatus');
 
 function toCsv(rows, columns) {
@@ -17,7 +17,7 @@ function toCsv(rows, columns) {
 
 async function allProductsReport(req, res, next) {
   try {
-    const [rows] = await pool.query(`
+    const { rows } = await query(`
       SELECT
         p.id, p.product_name, p.product_code, p.colour, p.size, p.quantity,
         p.minimum_stock_level, p.created_at, c.category_name
@@ -51,7 +51,7 @@ async function allProductsReport(req, res, next) {
 
 async function lowStockReport(req, res, next) {
   try {
-    const [rows] = await pool.query(`
+    const { rows } = await query(`
       SELECT
         p.id, p.product_name, p.product_code, p.colour, p.size, p.quantity,
         p.minimum_stock_level, c.category_name
@@ -84,7 +84,7 @@ async function lowStockReport(req, res, next) {
 
 async function outOfStockReport(req, res, next) {
   try {
-    const [rows] = await pool.query(`
+    const { rows } = await query(`
       SELECT
         p.id, p.product_name, p.product_code, p.colour, p.size, p.quantity,
         p.minimum_stock_level, c.category_name
@@ -117,7 +117,7 @@ async function outOfStockReport(req, res, next) {
 
 async function movementsReport(req, res, next) {
   try {
-    const [rows] = await pool.query(`
+    const { rows } = await query(`
       SELECT
         sm.id, sm.product_id, sm.movement_type, sm.quantity, sm.remarks, sm.created_at,
         p.product_name, p.product_code
